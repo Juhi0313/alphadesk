@@ -1,5 +1,15 @@
 import fetch from 'node-fetch';
 
+async function fetchWithTimeout(url, options = {}, ms = 10000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const EDGAR_BASE = 'https://data.sec.gov';
 const EDGAR_SEARCH = 'https://efts.sec.gov/LATEST/search-index';
 const COMPANY_FACTS = 'https://data.sec.gov/api/xbrl/companyfacts';
@@ -12,12 +22,12 @@ const headers = {
 // Get company CIK from ticker
 export async function getCIK(ticker) {
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://efts.sec.gov/LATEST/search-index?q=%22${ticker}%22&dateRange=custom&startdt=2020-01-01&forms=10-K`,
       { headers }
     );
     // Use the tickers.json mapping instead
-    const tickerRes = await fetch(
+    const tickerRes = await fetchWithTimeout(
       `https://www.sec.gov/files/company_tickers.json`,
       { headers }
     );
@@ -38,7 +48,7 @@ export async function getCIK(ticker) {
 // Get company submissions (filings list)
 export async function getSubmissions(cik) {
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `${EDGAR_BASE}/submissions/CIK${cik}.json`,
       { headers }
     );
@@ -89,7 +99,7 @@ export async function getRecentFilings(cik, ticker) {
 // Get company financial facts from XBRL
 export async function getCompanyFacts(cik) {
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `${COMPANY_FACTS}/CIK${cik}.json`,
       { headers }
     );
@@ -148,7 +158,7 @@ export function extractKeyMetrics(facts) {
 // Fetch filing document text (first 50KB for analysis)
 export async function fetchFilingText(url) {
   try {
-    const res = await fetch(url, { 
+    const res = await fetchWithTimeout(url, { 
       headers: { ...headers, 'Accept': 'text/html,text/plain' }
     });
     const text = await res.text();
@@ -170,7 +180,7 @@ export async function fetchFilingText(url) {
 // Get stock quote from Yahoo Finance (free, no API key)
 export async function getStockQuote(ticker) {
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`,
       { 
         headers: { 
@@ -205,7 +215,7 @@ export async function getStockQuote(ticker) {
 // Get historical prices for sparkline (free Yahoo Finance)
 export async function getHistoricalPrices(ticker, days = 30) {
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=${days}d`,
       {
         headers: {

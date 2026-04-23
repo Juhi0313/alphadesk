@@ -7,7 +7,7 @@ import { join, dirname } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-import { db } from './db.js';
+import { db, initDb } from './db.js';
 import { getCIK, getRecentFilings, getCompanyFacts, extractKeyMetrics, fetchFilingText, getStockQuote, getHistoricalPrices, getSubmissions } from './edgar.js';
 import { detectContradictions, generateResearchNote } from './contradictions.js';
 import { isIndianTicker, getBSECode, getIndianStockQuote, getIndianHistoricalPrices, getBSEFilings, getIndianCompanyInfo } from './india.js';
@@ -128,43 +128,52 @@ app.get('/api/history/:ticker', async (req, res) => {
 // ─── METRICS ───────────────────────────────────────────────────────
 
 app.get('/api/metrics/:ticker', async (req, res) => {
-  const ticker = req.params.ticker.toUpperCase();
-  const watchItem = db.getWatchlist().find(w => w.ticker === ticker);
-  if (!watchItem?.cik) return res.status(404).json({ error: 'Not in watchlist' });
+  try {
+    const ticker = req.params.ticker.toUpperCase();
+    const watchItem = db.getWatchlist().find(w => w.ticker === ticker);
+    if (!watchItem?.cik) return res.status(404).json({ error: 'Not in watchlist' });
 
-  if (watchItem.country === 'IN') {
-    // Return stored metrics for Indian stocks
-    return res.json(watchItem.metrics || {});
+    if (watchItem.country === 'IN') {
+      return res.json(watchItem.metrics || {});
+    }
+
+    const facts = await getCompanyFacts(watchItem.cik);
+    const metrics = facts ? extractKeyMetrics(facts) : {};
+    res.json(metrics);
+  } catch (e) {
+    console.error('metrics error:', e.message);
+    res.json({});
   }
-
-  const facts = await getCompanyFacts(watchItem.cik);
-  const metrics = facts ? extractKeyMetrics(facts) : {};
-  res.json(metrics);
 });
 
 // ─── RESEARCH NOTE ─────────────────────────────────────────────────
 
 app.get('/api/note/:ticker', async (req, res) => {
-  const ticker = req.params.ticker.toUpperCase();
-  const existing = db.getNotes(ticker)[0];
-  if (existing) return res.json(existing);
+  try {
+    const ticker = req.params.ticker.toUpperCase();
+    const existing = db.getNotes(ticker)[0];
+    if (existing) return res.json(existing);
 
-  const watchItem = db.getWatchlist().find(w => w.ticker === ticker);
-  if (!watchItem) return res.status(404).json({ error: 'Not in watchlist' });
+    const watchItem = db.getWatchlist().find(w => w.ticker === ticker);
+    if (!watchItem) return res.status(404).json({ error: 'Not in watchlist' });
 
-  let metrics = {};
-  if (watchItem.country !== 'IN') {
-    const facts = await getCompanyFacts(watchItem.cik);
-    metrics = facts ? extractKeyMetrics(facts) : {};
-  } else {
-    metrics = watchItem.metrics || {};
+    let metrics = {};
+    if (watchItem.country !== 'IN') {
+      const facts = await getCompanyFacts(watchItem.cik);
+      metrics = facts ? extractKeyMetrics(facts) : {};
+    } else {
+      metrics = watchItem.metrics || {};
+    }
+
+    const filings = db.getFilings(ticker);
+    const contradictions = db.getContradictions(ticker);
+    const note = generateResearchNote(ticker, watchItem.companyName, metrics, filings, contradictions, watchItem);
+    db.saveNote(note);
+    res.json(note);
+  } catch (e) {
+    console.error('note error:', e.message);
+    res.status(500).json({ error: e.message });
   }
-
-  const filings = db.getFilings(ticker);
-  const contradictions = db.getContradictions(ticker);
-  const note = generateResearchNote(ticker, watchItem.companyName, metrics, filings, contradictions, watchItem);
-  db.saveNote(note);
-  res.json(note);
 });
 
 app.post('/api/note/:ticker/regenerate', async (req, res) => {
@@ -347,7 +356,9 @@ setInterval(async () => {
 }, 60000);
 
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => {
-  console.log(`Analyst Copilot backend running on http://localhost:${PORT}`);
-  console.log(`WebSocket ready | US (SEC EDGAR) + India (BSE/NSE) supported`);
+initDb().then(() => {
+  server.listen(PORT, () => {
+    console.log(`Analyst Copilot backend running on http://localhost:${PORT}`);
+    console.log(`WebSocket ready | US (SEC EDGAR) + India (BSE/NSE) supported`);
+  });
 });
