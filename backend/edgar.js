@@ -162,9 +162,15 @@ async function resolveDocumentUrl(url) {
   try {
     const res = await fetchWithTimeout(url, { headers }, 10000);
     const html = await res.text();
-    // Find the primary HTM document (first match that looks like a filing doc)
-    const match = html.match(/href="(\/Archives\/edgar\/data\/[^"]+\.htm)"/i);
-    if (match) return `https://www.sec.gov${match[1]}`;
+    // Find all EDGAR .htm links, skip inline XBRL viewer files (R1.htm, R2.htm...)
+    const matches = [...html.matchAll(/href="(\/Archives\/edgar\/data\/[^"]+\.htm)"/gi)];
+    for (const m of matches) {
+      const filename = m[1].split('/').pop();
+      if (/^R\d+\.htm$/i.test(filename)) continue; // skip XBRL R-files
+      if (/^(ex|exhibit)/i.test(filename)) continue; // skip exhibits
+      return `https://www.sec.gov${m[1]}`;
+    }
+    if (matches.length > 0) return `https://www.sec.gov${matches[0][1]}`;
   } catch(e) {}
   return url;
 }
@@ -172,9 +178,14 @@ async function resolveDocumentUrl(url) {
 export async function fetchFilingText(url) {
   try {
     const docUrl = await resolveDocumentUrl(url);
+    // Use Range header to fetch only the first 300KB — avoids downloading 15MB files
     const res = await fetchWithTimeout(docUrl, {
-      headers: { ...headers, 'Accept': 'text/html,text/plain' }
-    }, 15000);
+      headers: {
+        ...headers,
+        'Accept': 'text/html,text/plain',
+        'Range': 'bytes=0-307200'
+      }
+    }, 20000);
     const text = await res.text();
     return text
       .replace(/<[^>]+>/g, ' ')
@@ -183,7 +194,7 @@ export async function fetchFilingText(url) {
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
       .replace(/\s+/g, ' ')
-      .slice(0, 200000); // 200KB — enough to reach MD&A section
+      .slice(0, 250000);
   } catch (e) {
     console.error('fetchFilingText error:', e.message);
     return '';
