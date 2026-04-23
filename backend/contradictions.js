@@ -2,36 +2,55 @@
 
 // Bullish sentiment phrases used by management
 const BULLISH_PATTERNS = [
-  /strong(?:ly)?\s+(?:demand|growth|performance|results|momentum|pipeline)/gi,
+  /strong(?:ly)?\s+(?:demand|growth|performance|results|momentum|pipeline|brand|position)/gi,
   /(?:record|exceptional|outstanding|excellent)\s+(?:revenue|sales|earnings|results|performance)/gi,
-  /(?:growing|accelerating|expanding)\s+(?:rapidly|strongly|significantly)/gi,
-  /(?:well-positioned|confident|optimistic)\s+(?:for|about|in)/gi,
-  /(?:robust|healthy|solid)\s+(?:demand|pipeline|backlog|growth)/gi,
-  /significant(?:ly)?\s+(?:increased|improved|grown|expanded)/gi,
-  /(?:exceeded|surpassed|outperformed)\s+(?:expectations|targets|guidance)/gi,
-  /demand\s+remains?\s+(?:strong|robust|healthy|solid)/gi,
-  /(?:gaining|capturing)\s+market\s+share/gi,
-  /(?:positive|favorable|constructive)\s+(?:outlook|momentum|trends)/gi,
-  /(?:continue|continuing)\s+to\s+(?:grow|expand|scale)/gi,
+  /(?:growing|accelerating|expanding)\s+(?:rapidly|strongly|significantly|our)/gi,
+  /(?:well-?positioned|confident|optimistic)\s+/gi,
+  /(?:robust|healthy|solid)\s+(?:demand|pipeline|backlog|growth|balance)/gi,
+  /significant(?:ly)?\s+(?:increased|improved|grown|expanded|opportunity|potential)/gi,
+  /(?:exceeded|surpassed|outperformed)\s+/gi,
+  /demand\s+(?:remains?|is|was)\s+(?:strong|robust|healthy|solid|resilient)/gi,
+  /(?:gaining|capturing|growing)\s+(?:market\s+share|traction|momentum)/gi,
+  /(?:positive|favorable|constructive)\s+(?:outlook|momentum|trends|response|reception)/gi,
+  /(?:continue|continuing)\s+to\s+(?:grow|expand|scale|gain|build|invest)/gi,
   /ahead\s+of\s+(?:plan|schedule|expectations)/gi,
-  /(?:strong|record)\s+(?:bookings|orders|backlog)/gi,
+  /(?:strong|record)\s+(?:bookings|orders|backlog|pipeline|interest)/gi,
+  /we\s+believe\s+(?:our|we|the|this|these)\s+\w+\s+(?:will|can|may|has|have|are|is)/gi,
+  /long-?term\s+(?:growth|opportunity|potential|value|vision|strategy)/gi,
+  /significant\s+(?:market\s+)?opportunity/gi,
+  /(?:strategic|key)\s+(?:initiatives?|priorities|investments?|focus)/gi,
+  /(?:strengthen|improve|enhance|grow|build|expand)\s+(?:our|the)\s+(?:brand|position|business|platform)/gi,
+  /(?:committed?\s+to|focused\s+on)\s+(?:growing|improving|delivering|driving|achieving)/gi,
+  /(?:attractive|large|growing|substantial|enormous)\s+(?:market|opportunity|addressable)/gi,
+  /(?:consumer|customer)\s+(?:demand|interest|adoption|engagement|response)\s+(?:for|to|is|remains)/gi,
+  /we\s+(?:expect|anticipate|project|forecast)\s+(?:to\s+)?(?:grow|increase|improve|achieve|reach)/gi,
+  /(?:pathway|path)\s+to\s+(?:profitability|growth|positive)/gi,
+  /(?:accelerate|accelerating)\s+(?:our|the|growth|adoption|expansion)/gi,
+  /(?:unique|differentiated|superior|innovative)\s+(?:products?|position|platform|offering)/gi,
 ];
 
-// Bearish/negative financial signal patterns  
+// Bearish/negative financial signal patterns
 const BEARISH_PATTERNS = [
-  /revenue\s+(?:declined?|decreased?|fell?|dropped?|down)\s+(?:\d+%?|\$[\d.]+[MBK]?)/gi,
-  /(?:net\s+)?(?:loss|losses)\s+of\s+\$[\d.]+/gi,
-  /(?:impairment|write-?(?:down|off))\s+(?:of|charge)\s+\$[\d.]+/gi,
-  /(?:restructuring|layoff|workforce\s+reduction)\s+(?:charge|cost)/gi,
-  /(?:decrease|decline|reduction|drop)\s+(?:of|in)\s+(?:\d+%?|\$[\d.]+)/gi,
-  /(?:missed?|below)\s+(?:expectations|consensus|estimates|guidance)/gi,
-  /(?:headwinds?|challenges?|pressures?)\s+(?:impacting|affecting|on)/gi,
-  /(?:slowing|softening|weakening)\s+(?:demand|growth|momentum)/gi,
-  /(?:inventory\s+(?:build-?up|excess|elevated))/gi,
-  /(?:customer\s+(?:churn|attrition|losses?))/gi,
-  /cash\s+(?:burn|runway|concerns?)/gi,
+  /net\s+revenues?\s+(?:decreased?|declined?|fell?|dropped?|were\s+down)/gi,
+  /revenues?\s+(?:decreased?|declined?|fell?|dropped?|down)/gi,
+  /(?:incurred?|reported?)\s+(?:a\s+)?net\s+loss/gi,
+  /net\s+loss\s+(?:of|was|totaled?)/gi,
+  /operating\s+loss/gi,
+  /gross\s+(?:loss|profit\s+(?:was|of)\s+(?:negative|\$\s*\(|minus))/gi,
+  /accumulated\s+deficit/gi,
+  /(?:continue\s+to\s+)?incur\s+(?:significant\s+)?(?:net\s+)?losses/gi,
+  /(?:impairment|write-?(?:down|off))/gi,
+  /(?:restructuring|layoff|workforce\s+reduction|headcount\s+reduction)/gi,
+  /(?:decrease|decline|reduction|drop)\s+(?:of|in)\s+/gi,
+  /(?:missed?|below|fell\s+short\s+of)\s+(?:expectations|consensus|estimates|guidance)/gi,
+  /(?:significant\s+)?(?:headwinds?|challenges?|macro\s+pressures?)/gi,
+  /(?:slowing|softening|weakening|reduced?|lower)\s+(?:demand|growth|volume|sales)/gi,
   /going\s+concern/gi,
-  /(?:material\s+)?(?:weakness|weaknesses)\s+in\s+internal\s+control/gi,
+  /(?:material\s+)?weakness\s+in\s+(?:our\s+)?internal\s+control/gi,
+  /(?:liquidity|cash)\s+(?:concerns?|constraints?|challenges?|burn)/gi,
+  /(?:not\s+)?(?:unable\s+to|may\s+not\s+be\s+able\s+to)\s+(?:achieve|maintain)\s+profitability/gi,
+  /substantial\s+doubt/gi,
+  /(?:negative|deteriorat)/gi,
 ];
 
 // Numeric patterns to extract financial figures
@@ -108,10 +127,8 @@ export function detectContradictions(text, ticker, filingType) {
                            bearish.match(/declined?\s+(?:by\s+)?(\d+)/);
       const magnitude = declineMatch ? parseFloat(declineMatch[1]) : null;
 
-      if (magnitude !== null && magnitude < 2) continue;
-
       const severity = magnitude
-        ? magnitude >= 20 ? 'HIGH' : magnitude >= 8 ? 'MEDIUM' : 'LOW'
+        ? magnitude >= 20 ? 'HIGH' : magnitude >= 5 ? 'MEDIUM' : 'LOW'
         : 'MEDIUM';
 
       const isDupe = contradictions.some(c =>
