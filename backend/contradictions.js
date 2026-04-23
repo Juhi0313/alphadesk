@@ -32,13 +32,13 @@ export async function detectContradictionsNvidia(text, ticker, filingType) {
         model: 'meta/llama-3.1-70b-instruct',
         messages: [
           { role: 'system', content: NVIDIA_SYSTEM_PROMPT },
-          { role: 'user', content: `Analyze this ${filingType} filing for ${ticker} and find contradictions:\n\n${text.slice(0, 50000)}` }
+          { role: 'user', content: `Analyze this ${filingType} filing for ${ticker} and find contradictions:\n\n${text.slice(0, 20000)}` }
         ],
-        max_tokens: 2048,
+        max_tokens: 1024,
         temperature: 0.1,
         stream: false
       }),
-      signal: AbortSignal.timeout(30000)
+      signal: AbortSignal.timeout(45000)
     });
 
     if (!res.ok) {
