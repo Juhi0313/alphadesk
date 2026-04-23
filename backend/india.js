@@ -79,8 +79,9 @@ export function getBSECode(ticker) {
 export async function getIndianStockQuote(ticker) {
   try {
     const upper = ticker.toUpperCase();
-    // Try NSE first, then BSE
-    const symbols = [`${upper}.NS`, `${upper}.BO`];
+    const base = upper.replace(/\.(NS|BO)$/i, '');
+    // If already has suffix use as-is, otherwise try both
+    const symbols = upper.match(/\.(NS|BO)$/i) ? [upper] : [`${base}.NS`, `${base}.BO`];
     
     for (const symbol of symbols) {
       try {
@@ -127,7 +128,8 @@ export async function getIndianStockQuote(ticker) {
 export async function getIndianHistoricalPrices(ticker, days = 30) {
   try {
     const upper = ticker.toUpperCase();
-    const symbol = `${upper}.NS`;
+    const base = upper.replace(/\.(NS|BO)$/i, '');
+    const symbol = upper.match(/\.(NS|BO)$/i) ? upper : `${base}.NS`;
     const res = await fetchWithTimeout(
       `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=${days}d`,
       {
@@ -153,8 +155,8 @@ export async function getIndianHistoricalPrices(ticker, days = 30) {
 }
 
 // Get annual reports from BSE
-export async function getBSEFilings(ticker) {
-  const bseCode = getBSECode(ticker.toUpperCase());
+export async function getBSEFilings(ticker, bseCodeOverride) {
+  const bseCode = bseCodeOverride || getBSECode(ticker.toUpperCase());
   if (!bseCode || bseCode === 'INDEX') return [];
   
   try {

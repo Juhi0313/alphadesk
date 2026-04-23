@@ -54,37 +54,46 @@ app.post('/api/watchlist', async (req, res) => {
   if (db.getWatchlist().find(w => w.ticker === upper))
     return res.status(409).json({ error: 'Already in watchlist' });
 
-  const indian = isIndianTicker(upper);
-  broadcast('STATUS', { message: `Looking up ${upper} on ${indian ? 'BSE/NSE' : 'SEC EDGAR'}...`, ticker: upper });
-
-  if (indian) {
-    // Indian stock flow
+  // If already known Indian ticker, skip SEC EDGAR entirely
+  if (isIndianTicker(upper)) {
     const bseCode = getBSECode(upper);
-    if (!bseCode) return res.status(404).json({ error: `${upper} not found. Try adding .NS suffix or check the ticker.` });
-
-    const info = await getIndianCompanyInfo(upper);
+    const info = bseCode ? await getIndianCompanyInfo(upper) : null;
     const companyName = info?.companyName || upper;
-
-    db.addToWatchlist({ ticker: upper, cik: bseCode, companyName, status: 'loading', exchange: 'BSE/NSE', country: 'IN' });
+    db.addToWatchlist({ ticker: upper, cik: bseCode || upper, companyName, status: 'loading', exchange: 'BSE/NSE', country: 'IN' });
     broadcast('WATCHLIST_UPDATE', db.getWatchlist());
     res.json({ ticker: upper, companyName, status: 'loading', exchange: 'BSE/NSE' });
     setImmediate(() => fetchIndianCompanyData(upper, bseCode, companyName));
-  } else {
-    // US stock flow
-    const cik = await getCIK(upper);
-    if (!cik) return res.status(404).json({ error: `Could not find ${upper} on SEC EDGAR` });
+    return;
+  }
 
+  // Try SEC EDGAR (US stocks)
+  broadcast('STATUS', { message: `Looking up ${upper} on SEC EDGAR...`, ticker: upper });
+  const cik = await getCIK(upper);
+  if (cik) {
     let companyName = upper;
     try {
       const subs = await getSubmissions(cik);
       companyName = subs?.name || upper;
     } catch(e) {}
-
     db.addToWatchlist({ ticker: upper, cik, companyName, status: 'loading', exchange: 'NASDAQ/NYSE', country: 'US' });
     broadcast('WATCHLIST_UPDATE', db.getWatchlist());
     res.json({ ticker: upper, cik, companyName, status: 'loading' });
     setImmediate(() => fetchUSCompanyData(upper, cik, companyName));
+    return;
   }
+
+  // Not on SEC EDGAR — try NSE/BSE as fallback (handles any Indian ticker)
+  broadcast('STATUS', { message: `Not on SEC EDGAR, trying NSE/BSE for ${upper}...`, ticker: upper });
+  const indianQuote = await getIndianStockQuote(upper);
+  if (indianQuote) {
+    db.addToWatchlist({ ticker: upper, cik: upper, companyName: upper, status: 'loading', exchange: indianQuote.exchange || 'BSE/NSE', country: 'IN' });
+    broadcast('WATCHLIST_UPDATE', db.getWatchlist());
+    res.json({ ticker: upper, companyName: upper, status: 'loading', exchange: 'BSE/NSE' });
+    setImmediate(() => fetchIndianCompanyData(upper, null, upper));
+    return;
+  }
+
+  return res.status(404).json({ error: `${upper} not found on SEC EDGAR, NSE, or BSE. For Indian stocks try TICKER.NS (e.g., OMPOWER.NS)` });
 });
 
 app.delete('/api/watchlist/:ticker', (req, res) => {
@@ -291,8 +300,8 @@ async function fetchIndianCompanyData(ticker, bseCode, companyName) {
   try {
     broadcast('STATUS', { message: `Fetching BSE/NSE filings for ${ticker}...`, ticker });
 
-    // Get filings from BSE
-    const filings = await getBSEFilings(ticker);
+    // Get filings from BSE (pass bseCode directly so unknown tickers still get fallback URLs)
+    const filings = await getBSEFilings(ticker, bseCode);
     for (const f of filings) db.addFiling(f);
     if (filings.length) broadcast('FILINGS_UPDATE', { ticker, filings: db.getFilings(ticker) });
 
