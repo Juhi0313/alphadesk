@@ -1,3 +1,79 @@
+import fetch from 'node-fetch';
+
+const NVIDIA_API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
+
+const NVIDIA_SYSTEM_PROMPT = `You are a forensic financial analyst detecting contradictions between management narrative and reported financial data in SEC filings and annual reports.
+
+Find contradictions where management uses bullish/optimistic language while the financial data shows deterioration.
+
+Return a JSON array only (no markdown, no explanation outside the array). Each object must have:
+- "topic": one of "Revenue/Sales","Demand","Profitability","Liquidity","Market Position","Growth","Customer Metrics","Production/Delivery"
+- "severity": "LOW","MEDIUM","HIGH", or "CRITICAL"
+- "bullishClaim": exact quote from filing where management sounds positive (max 300 chars)
+- "bearishSignal": exact quote showing contradicting negative data (max 300 chars)
+- "magnitude": quantified gap like "Revenue down 18%" or "Unquantified"
+- "explanation": 1-2 sentences explaining the contradiction
+
+Severity: CRITICAL=going concern/fraud; HIGH=>15% decline or major impairment; MEDIUM=5-15% decline; LOW=minor mismatch.
+Return 0-8 contradictions. Return [] if none. Return ONLY valid JSON array.`;
+
+export async function detectContradictionsNvidia(text, ticker, filingType) {
+  const apiKey = process.env.NVIDIA_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const res = await fetch(NVIDIA_API_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'meta/llama-3.1-70b-instruct',
+        messages: [
+          { role: 'system', content: NVIDIA_SYSTEM_PROMPT },
+          { role: 'user', content: `Analyze this ${filingType} filing for ${ticker} and find contradictions:\n\n${text.slice(0, 50000)}` }
+        ],
+        max_tokens: 2048,
+        temperature: 0.1,
+        stream: false
+      }),
+      signal: AbortSignal.timeout(30000)
+    });
+
+    if (!res.ok) {
+      console.error('[NVIDIA] API error:', res.status, await res.text());
+      return null;
+    }
+
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content || '';
+
+    const jsonMatch = content.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) return [];
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    const now = new Date().toISOString();
+
+    return parsed.slice(0, 8).map(c => ({
+      id: `${ticker}-ai-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      ticker,
+      filingType,
+      topic: c.topic || 'Business Performance',
+      severity: c.severity || 'MEDIUM',
+      bullishClaim: String(c.bullishClaim || '').slice(0, 300),
+      bearishSignal: String(c.bearishSignal || '').slice(0, 300),
+      magnitude: c.magnitude || 'Unquantified',
+      explanation: c.explanation || '',
+      detectedAt: now,
+      aiGenerated: true
+    }));
+  } catch (e) {
+    console.error('[NVIDIA] detectContradictions error:', e.message);
+    return null;
+  }
+}
+
 // Contradiction Detection Engine
 
 // Bullish sentiment phrases used by management
