@@ -1,5 +1,15 @@
 import fetch from 'node-fetch';
 
+async function fetchWithTimeout(url, options = {}, ms = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // BSE scrip code mapping for major Indian stocks
 const TICKER_TO_BSE = {
   // IT
@@ -74,7 +84,7 @@ export async function getIndianStockQuote(ticker) {
     
     for (const symbol of symbols) {
       try {
-        const res = await fetch(
+        const res = await fetchWithTimeout(
           `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`,
           {
             headers: {
@@ -118,7 +128,7 @@ export async function getIndianHistoricalPrices(ticker, days = 30) {
   try {
     const upper = ticker.toUpperCase();
     const symbol = `${upper}.NS`;
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=${days}d`,
       {
         headers: {
@@ -149,7 +159,7 @@ export async function getBSEFilings(ticker) {
   
   try {
     // BSE annual reports API
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://api.bseindia.com/BseIndiaAPI/api/AnnualReports/w?scripcode=${bseCode}&flag=0`,
       { headers: BSE_HEADERS }
     );
@@ -239,7 +249,7 @@ export async function getIndianCompanyInfo(ticker) {
   if (!bseCode) return null;
   
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://api.bseindia.com/BseIndiaAPI/api/ComHeader/w?quotetype=EQ&scripcode=${bseCode}`,
       { headers: BSE_HEADERS }
     );
@@ -262,7 +272,7 @@ export async function getIndianCompanyInfo(ticker) {
 export async function getIndianFinancials(ticker) {
   try {
     const upper = ticker.toUpperCase();
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://www.screener.in/api/company/${upper}/`,
       {
         headers: {
