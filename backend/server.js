@@ -2,6 +2,11 @@ import express from 'express';
 import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
 import cors from 'cors';
+import { fileURLToPath } from 'url';
+import { join, dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 import { db } from './db.js';
 import { getCIK, getRecentFilings, getCompanyFacts, extractKeyMetrics, fetchFilingText, getStockQuote, getHistoricalPrices, getSubmissions } from './edgar.js';
 import { detectContradictions, generateResearchNote } from './contradictions.js';
@@ -13,6 +18,7 @@ const wss = new WebSocketServer({ server });
 
 app.use(cors());
 app.use(express.json());
+app.use(express.static(join(__dirname, '../frontend')));
 
 const clients = new Set();
 

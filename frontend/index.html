@@ -594,8 +594,8 @@ canvas { width:100% !important; }
 </div>
 
 <script>
-const API = 'http://localhost:3001';
-const WS_URL = 'ws://localhost:3001';
+const API = window.location.origin;
+const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`;
 
 let state = {
   watchlist: [],
