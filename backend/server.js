@@ -42,6 +42,8 @@ wss.on('connection', (ws) => {
   ws.on('close', () => clients.delete(ws));
 });
 
+app.get('/api/version', (req, res) => res.json({ v: 'demo-v3', demo: Object.keys({BYND:1}) }));
+
 // ─── WATCHLIST ─────────────────────────────────────────────────────
 
 app.get('/api/watchlist', (req, res) => res.json(db.getWatchlist()));
