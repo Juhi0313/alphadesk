@@ -9,7 +9,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 import { db, initDb } from './db.js';
 import { getCIK, getRecentFilings, getCompanyFacts, extractKeyMetrics, fetchFilingText, getStockQuote, getHistoricalPrices, getSubmissions } from './edgar.js';
-import { detectContradictions, detectContradictionsAI, generateResearchNote } from './contradictions.js';
+import { detectContradictions, generateResearchNote } from './contradictions.js';
 import { isIndianTicker, getBSECode, getIndianStockQuote, getIndianHistoricalPrices, getBSEFilings, getIndianCompanyInfo } from './india.js';
 
 const app = express();
@@ -220,18 +220,14 @@ app.post('/api/scan/:ticker', async (req, res) => {
     broadcast('STATUS', { message: `Scanning ${ticker} for contradictions...`, ticker });
 
     const text = await fetchFilingText(latestFiling.url);
-    const aiMode = !!process.env.ANTHROPIC_API_KEY;
-    broadcast('STATUS', { message: `Running ${aiMode ? 'AI' : 'pattern'} contradiction scan on ${ticker}...`, ticker });
-
-    const aiResult = await detectContradictionsAI(text, ticker, latestFiling.form);
-    const found = aiResult !== null ? aiResult : detectContradictions(text, ticker, latestFiling.form);
+    const found = detectContradictions(text, ticker, latestFiling.form);
 
     db.clearContradictions(ticker);
     for (const c of found) db.addContradiction(c);
 
     const stored = db.getContradictions(ticker);
     broadcast('CONTRADICTIONS_UPDATE', { ticker, contradictions: stored, count: stored.length });
-    res.json({ contradictions: found, count: found.length, aiGenerated: aiResult !== null });
+    res.json({ contradictions: found, count: found.length });
   } catch (e) {
     console.error('scan error:', e.message);
     res.json({ contradictions: [], count: 0, message: e.message });
@@ -280,12 +276,10 @@ async function fetchUSCompanyData(ticker, cik, companyName) {
 
     const latestAnnual = filings.find(f => f.form === '10-K');
     if (latestAnnual) {
-      const aiMode = !!process.env.ANTHROPIC_API_KEY;
-      broadcast('STATUS', { message: `Running ${aiMode ? 'AI' : 'pattern'} contradiction scan on ${ticker} 10-K...`, ticker });
+      broadcast('STATUS', { message: `Running contradiction scan on ${ticker} 10-K...`, ticker });
       const text = await fetchFilingText(latestAnnual.url);
       if (text) {
-        const aiResult = await detectContradictionsAI(text, ticker, '10-K');
-        const found = aiResult !== null ? aiResult : detectContradictions(text, ticker, '10-K');
+        const found = detectContradictions(text, ticker, '10-K');
         db.clearContradictions(ticker);
         for (const c of found) db.addContradiction(c);
         const stored = db.getContradictions(ticker);
@@ -336,13 +330,11 @@ async function fetchIndianCompanyData(ticker, bseCode, companyName) {
     // Try to scan annual report for contradictions
     const annualFiling = filings.find(f => f.form === 'Annual Report');
     if (annualFiling) {
-      const aiMode = !!process.env.ANTHROPIC_API_KEY;
-      broadcast('STATUS', { message: `Running ${aiMode ? 'AI' : 'pattern'} scan on ${ticker} Annual Report...`, ticker });
+      broadcast('STATUS', { message: `Scanning ${ticker} Annual Report...`, ticker });
       try {
         const text = await fetchFilingText(annualFiling.url);
         if (text && text.length > 500) {
-          const aiResult = await detectContradictionsAI(text, ticker, 'Annual Report');
-          const found = aiResult !== null ? aiResult : detectContradictions(text, ticker, 'Annual Report');
+          const found = detectContradictions(text, ticker, 'Annual Report');
           db.clearContradictions(ticker);
           for (const c of found) db.addContradiction(c);
           const stored = db.getContradictions(ticker);
