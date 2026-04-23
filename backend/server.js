@@ -198,26 +198,31 @@ app.post('/api/note/:ticker/regenerate', async (req, res) => {
 // ─── SCAN ──────────────────────────────────────────────────────────
 
 app.post('/api/scan/:ticker', async (req, res) => {
-  const ticker = req.params.ticker.toUpperCase();
-  const watchItem = db.getWatchlist().find(w => w.ticker === ticker);
-  if (!watchItem) return res.status(404).json({ error: 'Not in watchlist' });
+  try {
+    const ticker = req.params.ticker.toUpperCase();
+    const watchItem = db.getWatchlist().find(w => w.ticker === ticker);
+    if (!watchItem) return res.status(404).json({ error: 'Not in watchlist' });
 
-  const filings = db.getFilings(ticker);
-  const latestAnnual = filings.find(f => f.form === '10-K' || f.form === 'Annual Report');
-  const latestFiling = latestAnnual || filings[0];
-  if (!latestFiling) return res.json({ contradictions: [], message: 'No filings found' });
+    const filings = db.getFilings(ticker);
+    const latestAnnual = filings.find(f => f.form === '10-K' || f.form === 'Annual Report');
+    const latestFiling = latestAnnual || filings[0];
+    if (!latestFiling) return res.json({ contradictions: [], count: 0, message: 'No filings found' });
 
-  broadcast('STATUS', { message: `Scanning ${ticker} for contradictions...`, ticker });
+    broadcast('STATUS', { message: `Scanning ${ticker} for contradictions...`, ticker });
 
-  const text = await fetchFilingText(latestFiling.url);
-  const found = detectContradictions(text, ticker, latestFiling.form);
+    const text = await fetchFilingText(latestFiling.url);
+    const found = detectContradictions(text, ticker, latestFiling.form);
 
-  db.clearContradictions(ticker);
-  for (const c of found) db.addContradiction(c);
+    db.clearContradictions(ticker);
+    for (const c of found) db.addContradiction(c);
 
-  const stored = db.getContradictions(ticker);
-  broadcast('CONTRADICTIONS_UPDATE', { ticker, contradictions: stored, count: stored.length });
-  res.json({ contradictions: found, count: found.length });
+    const stored = db.getContradictions(ticker);
+    broadcast('CONTRADICTIONS_UPDATE', { ticker, contradictions: stored, count: stored.length });
+    res.json({ contradictions: found, count: found.length });
+  } catch (e) {
+    console.error('scan error:', e.message);
+    res.json({ contradictions: [], count: 0, message: e.message });
+  }
 });
 
 // ─── DASHBOARD ─────────────────────────────────────────────────────
