@@ -9,7 +9,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 import { db, initDb } from './db.js';
 import { getCIK, getRecentFilings, getCompanyFacts, extractKeyMetrics, fetchFilingText, getStockQuote, getHistoricalPrices, getSubmissions } from './edgar.js';
-import { detectContradictions, detectContradictionsNvidia, generateResearchNote } from './contradictions.js';
+import { detectContradictionsNvidia, generateResearchNote } from './contradictions.js';
 import { isIndianTicker, getBSECode, getIndianStockQuote, getIndianHistoricalPrices, getBSEFilings, getIndianCompanyInfo } from './india.js';
 
 const app = express();
@@ -330,21 +330,9 @@ async function fetchIndianCompanyData(ticker, bseCode, companyName) {
       broadcast('WATCHLIST_UPDATE', db.getWatchlist());
     }
 
-    // Try to scan annual report for contradictions
-    const annualFiling = filings.find(f => f.form === 'Annual Report');
-    if (annualFiling) {
-      broadcast('STATUS', { message: `Scanning ${ticker} Annual Report...`, ticker });
-      try {
-        const text = await fetchFilingText(annualFiling.url);
-        if (text && text.length > 500) {
-          const found = detectContradictions(text, ticker, 'Annual Report');
-          db.clearContradictions(ticker);
-          for (const c of found) db.addContradiction(c);
-          const stored = db.getContradictions(ticker);
-          broadcast('CONTRADICTIONS_UPDATE', { ticker, contradictions: stored, count: stored.length });
-        }
-      } catch(e) {}
-    }
+    // Auto-scan annual report for contradictions using NVIDIA
+    const annualFiling = filings.find(f => f.form === 'Annual Report') || filings[0];
+    if (annualFiling) await runContradictionScan(ticker, annualFiling);
 
     broadcast('STATUS', { message: `${ticker} fully loaded (BSE/NSE)`, ticker, done: true });
     console.log(`[${ticker}] Indian stock loaded.`);
