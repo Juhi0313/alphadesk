@@ -156,13 +156,26 @@ export function extractKeyMetrics(facts) {
 }
 
 // Fetch filing document text (first 50KB for analysis)
+// If the URL is a filing index page, extract the primary document URL
+async function resolveDocumentUrl(url) {
+  if (!url.includes('-index.htm')) return url;
+  try {
+    const res = await fetchWithTimeout(url, { headers }, 10000);
+    const html = await res.text();
+    // Find the primary HTM document (first match that looks like a filing doc)
+    const match = html.match(/href="(\/Archives\/edgar\/data\/[^"]+\.htm)"/i);
+    if (match) return `https://www.sec.gov${match[1]}`;
+  } catch(e) {}
+  return url;
+}
+
 export async function fetchFilingText(url) {
   try {
-    const res = await fetchWithTimeout(url, { 
+    const docUrl = await resolveDocumentUrl(url);
+    const res = await fetchWithTimeout(docUrl, {
       headers: { ...headers, 'Accept': 'text/html,text/plain' }
-    });
+    }, 15000);
     const text = await res.text();
-    // Strip HTML tags
     return text
       .replace(/<[^>]+>/g, ' ')
       .replace(/&nbsp;/g, ' ')
@@ -170,7 +183,7 @@ export async function fetchFilingText(url) {
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
       .replace(/\s+/g, ' ')
-      .slice(0, 80000); // 80KB max
+      .slice(0, 200000); // 200KB — enough to reach MD&A section
   } catch (e) {
     console.error('fetchFilingText error:', e.message);
     return '';
