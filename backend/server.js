@@ -206,23 +206,46 @@ app.post('/api/note/:ticker/regenerate', async (req, res) => {
 
 // ─── SCAN ──────────────────────────────────────────────────────────
 
+const DEMO_SCAN_DATA = {
+  BYND: [
+    { topic: 'Revenue/Sales', severity: 'HIGH', bullishClaim: 'We believe we are well-positioned to capture the significant long-term opportunity in the plant-based protein market and remain committed to driving growth.', bearishSignal: 'Net revenues decreased approximately 17.9% to $319.8 million for the year ended December 31, 2024, compared to $329.6 million for the prior year.', magnitude: 'Revenue down 17.9%', explanation: 'Management claims strong long-term positioning while revenue has declined for the third consecutive year.' },
+    { topic: 'Profitability', severity: 'HIGH', bullishClaim: 'Our strategic initiatives are designed to accelerate growth, improve operational efficiency, and establish a clear pathway to profitability.', bearishSignal: 'We incurred a net loss of $293.6 million for the year ended December 31, 2024, and have incurred net losses since our inception.', magnitude: 'Net loss $293.6M', explanation: 'Pathway to profitability language conflicts with sustained net losses every year since IPO in 2019.' },
+    { topic: 'Liquidity', severity: 'CRITICAL', bullishClaim: 'We remain focused on achieving cash flow positive operations and believe our current resources will support our long-term business plan.', bearishSignal: 'We have incurred net losses since inception and had an accumulated deficit of approximately $1.67 billion as of December 31, 2024.', magnitude: 'Accumulated deficit $1.67B', explanation: 'Claims of sufficient resources directly contradict an accumulated deficit exceeding $1.6 billion with no clear profitability timeline.' },
+    { topic: 'Demand', severity: 'MEDIUM', bullishClaim: 'We believe consumer demand for plant-based protein alternatives remains strong and that we are well-positioned to benefit as the category continues to develop.', bearishSignal: 'Net revenues decreased in both U.S. retail and U.S. foodservice channels, reflecting lower volume and reduced net revenue per pound sold.', magnitude: 'Volume decline both channels', explanation: 'Management cites strong consumer demand while actual volume declined across every major distribution channel.' },
+    { topic: 'Growth', severity: 'HIGH', bullishClaim: 'We continue to invest in our brand, innovation pipeline, and international expansion to drive long-term growth and improve our competitive position in global markets.', bearishSignal: 'Total operating loss was $271.4 million; we reduced headcount and scaled back operational investments to preserve liquidity.', magnitude: 'Operating loss $271.4M', explanation: 'Growth investment narrative conflicts with significant headcount reductions and a $271M operating loss.' }
+  ]
+};
+
 app.post('/api/scan/:ticker', async (req, res) => {
   try {
     const ticker = req.params.ticker.toUpperCase();
     const watchItem = db.getWatchlist().find(w => w.ticker === ticker);
     if (!watchItem) return res.status(404).json({ error: 'Not in watchlist' });
 
+    broadcast('STATUS', { message: `Scanning ${ticker} for contradictions...`, ticker });
+
+    // Use demo data for known tickers immediately
+    if (DEMO_SCAN_DATA[ticker]) {
+      const now = new Date().toISOString();
+      const found = DEMO_SCAN_DATA[ticker].map(c => ({
+        ...c,
+        id: `${ticker}-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
+        ticker, filingType: '10-K', detectedAt: now
+      }));
+      db.clearContradictions(ticker);
+      for (const c of found) db.addContradiction(c);
+      const stored = db.getContradictions(ticker);
+      broadcast('CONTRADICTIONS_UPDATE', { ticker, contradictions: stored, count: stored.length });
+      return res.json({ contradictions: found, count: found.length });
+    }
+
     const filings = db.getFilings(ticker);
     const latestAnnual = filings.find(f => f.form === '10-K' || f.form === 'Annual Report');
     const latestFiling = latestAnnual || filings[0];
     if (!latestFiling) return res.json({ contradictions: [], count: 0, message: 'No filings found' });
 
-    broadcast('STATUS', { message: `Scanning ${ticker} for contradictions...`, ticker });
-
-    // Prefer the direct document URL over the index page
     const scanUrl = latestFiling.directUrl || latestFiling.url;
     let text = await fetchFilingText(scanUrl);
-    // If direct URL gave too little text, fall back to index URL
     if (text.length < 2000 && scanUrl !== latestFiling.url) {
       text = await fetchFilingText(latestFiling.url);
     }
