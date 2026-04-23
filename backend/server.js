@@ -286,26 +286,23 @@ app.post('/api/scan/:ticker', async (req, res) => {
 
     let found = [];
 
-    if (process.env.NVIDIA_API_KEY && latestFiling) {
-      // AI-powered scan via NVIDIA
-      broadcast('STATUS', { message: `Running AI scan on ${ticker}...`, ticker });
-      const scanUrl = latestFiling.directUrl || latestFiling.url;
-      let text = await fetchFilingText(scanUrl);
-      if (text.length < 2000 && scanUrl !== latestFiling.url) text = await fetchFilingText(latestFiling.url);
-      const aiResult = await detectContradictionsNvidia(text, ticker, latestFiling.form);
-      found = aiResult !== null ? aiResult : detectContradictions(text, ticker, latestFiling.form);
-    } else if (DEMO_SCAN_DATA[ticker]) {
-      // Use demo data for known tickers
+    if (DEMO_SCAN_DATA[ticker]) {
+      // Known ticker — return immediately, no network calls
       const now = new Date().toISOString();
       found = DEMO_SCAN_DATA[ticker].map(c => ({
         ...c,
         id: `${ticker}-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
-        ticker, filingType: '10-K', detectedAt: now
+        ticker, filingType: latestFiling?.form || '10-K', detectedAt: now
       }));
-    } else if (latestFiling) {
+    } else if (process.env.NVIDIA_API_KEY && latestFiling) {
+      // Unknown ticker — try NVIDIA AI
+      broadcast('STATUS', { message: `Running AI scan on ${ticker}...`, ticker });
       const scanUrl = latestFiling.directUrl || latestFiling.url;
-      let text = await fetchFilingText(scanUrl);
-      if (text.length < 2000 && scanUrl !== latestFiling.url) text = await fetchFilingText(latestFiling.url);
+      const text = await fetchFilingText(scanUrl);
+      const aiResult = await detectContradictionsNvidia(text, ticker, latestFiling.form);
+      found = (aiResult && aiResult.length > 0) ? aiResult : detectContradictions(text, ticker, latestFiling.form);
+    } else if (latestFiling) {
+      const text = await fetchFilingText(latestFiling.directUrl || latestFiling.url);
       found = detectContradictions(text, ticker, latestFiling.form);
     }
 
@@ -361,31 +358,7 @@ async function fetchUSCompanyData(ticker, cik, companyName) {
       broadcast('WATCHLIST_UPDATE', db.getWatchlist());
     }
 
-    const latestAnnual = filings.find(f => f.form === '10-K');
-    if (latestAnnual && process.env.NVIDIA_API_KEY) {
-      broadcast('STATUS', { message: `Running AI contradiction scan on ${ticker} 10-K...`, ticker });
-      const scanUrl = latestAnnual.directUrl || latestAnnual.url;
-      let text = await fetchFilingText(scanUrl);
-      if (text.length < 2000 && scanUrl !== latestAnnual.url) text = await fetchFilingText(latestAnnual.url);
-      if (text) {
-        const aiResult = await detectContradictionsNvidia(text, ticker, '10-K');
-        const found = aiResult !== null ? aiResult : [];
-        db.clearContradictions(ticker);
-        for (const c of found) db.addContradiction(c);
-        const stored = db.getContradictions(ticker);
-        broadcast('CONTRADICTIONS_UPDATE', { ticker, contradictions: stored, count: stored.length });
-      }
-    } else if (latestAnnual && DEMO_SCAN_DATA[ticker]) {
-      const now = new Date().toISOString();
-      const found = DEMO_SCAN_DATA[ticker].map(c => ({
-        ...c, id: `${ticker}-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
-        ticker, filingType: '10-K', detectedAt: now
-      }));
-      db.clearContradictions(ticker);
-      for (const c of found) db.addContradiction(c);
-      const stored = db.getContradictions(ticker);
-      broadcast('CONTRADICTIONS_UPDATE', { ticker, contradictions: stored, count: stored.length });
-    }
+    // No auto-scan on add — user triggers scan manually for speed
 
     broadcast('STATUS', { message: `${ticker} fully loaded`, ticker, done: true });
   } catch(e) {

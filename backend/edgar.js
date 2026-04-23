@@ -185,7 +185,7 @@ export async function fetchFilingText(url) {
         'Accept': 'text/html,text/plain',
         'Range': 'bytes=0-307200'
       }
-    }, 20000);
+    }, 10000);
     const text = await res.text();
     return text
       .replace(/<[^>]+>/g, ' ')
