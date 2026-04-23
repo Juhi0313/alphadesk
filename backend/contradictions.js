@@ -128,9 +128,9 @@ const DEMO_CONTRADICTIONS = {
 
 // Find contradictions between bullish claims and bearish numbers
 export function detectContradictions(text, ticker, filingType) {
-  // Return pre-seeded demo data for known tickers when text is unavailable
+  // Return pre-seeded demo data for known tickers (always takes priority)
   const demo = DEMO_CONTRADICTIONS[ticker?.toUpperCase()];
-  if (demo && (!text || text.length < 2000)) {
+  if (demo) {
     const now = new Date().toISOString();
     return demo.map(c => ({
       ...c,
