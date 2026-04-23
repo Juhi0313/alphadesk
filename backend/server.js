@@ -219,7 +219,13 @@ app.post('/api/scan/:ticker', async (req, res) => {
 
     broadcast('STATUS', { message: `Scanning ${ticker} for contradictions...`, ticker });
 
-    const text = await fetchFilingText(latestFiling.url);
+    // Prefer the direct document URL over the index page
+    const scanUrl = latestFiling.directUrl || latestFiling.url;
+    let text = await fetchFilingText(scanUrl);
+    // If direct URL gave too little text, fall back to index URL
+    if (text.length < 2000 && scanUrl !== latestFiling.url) {
+      text = await fetchFilingText(latestFiling.url);
+    }
     const found = detectContradictions(text, ticker, latestFiling.form);
 
     db.clearContradictions(ticker);
@@ -277,7 +283,9 @@ async function fetchUSCompanyData(ticker, cik, companyName) {
     const latestAnnual = filings.find(f => f.form === '10-K');
     if (latestAnnual) {
       broadcast('STATUS', { message: `Running contradiction scan on ${ticker} 10-K...`, ticker });
-      const text = await fetchFilingText(latestAnnual.url);
+      const scanUrl = latestAnnual.directUrl || latestAnnual.url;
+      let text = await fetchFilingText(scanUrl);
+      if (text.length < 2000 && scanUrl !== latestAnnual.url) text = await fetchFilingText(latestAnnual.url);
       if (text) {
         const found = detectContradictions(text, ticker, '10-K');
         db.clearContradictions(ticker);
