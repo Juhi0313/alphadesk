@@ -636,15 +636,24 @@ function connectWS() {
 
 function handleWSMessage(msg) {
   switch(msg.type) {
-    case 'INIT':
-      state.watchlist = msg.data.watchlist || [];
+    case 'INIT': {
+      // New format: companies + flags
+      const companies = msg.data.companies || msg.data.watchlist || [];
+      state.watchlist = companies.map(c => ({ ticker: c.symbol, companyName: c.company_name, status: c.status, country: c.country, exchange: c.exchange }));
+      const flags = msg.data.flags || msg.data.contradictions || [];
+      state.contradictions = flags.map(normalizeFlag);
       state.filings = msg.data.filings || [];
-      state.contradictions = msg.data.contradictions || [];
       renderAll();
+      bootstrap();
       break;
+    }
 
     case 'WATCHLIST_UPDATE':
-      state.watchlist = msg.data;
+      if (Array.isArray(msg.data)) {
+        state.watchlist = msg.data;
+      } else if (msg.data.companies) {
+        state.watchlist = msg.data.companies.map(c => ({ ticker: c.symbol, companyName: c.company_name, status: c.status, country: c.country }));
+      }
       renderWatchlist();
       renderDashboard();
       renderWLPriceTable();
@@ -653,21 +662,23 @@ function handleWSMessage(msg) {
     case 'PRICE_UPDATE': {
       const { ticker, quote } = msg.data;
       const prev = state.prices[ticker];
-      state.prices[ticker] = quote;
+      state.prices[ticker] = { ...quote, changePercent: quote.change_pct ?? quote.changePercent };
       renderWatchlistItem(ticker, prev);
       renderWLPriceTable();
       renderDashboard();
       updateTape();
-      setTimeout(() => {
-        const rows = document.querySelectorAll('#wl-price-tbody tr');
-        rows.forEach(row => {
-          if (row.querySelector('td') && row.querySelector('td').textContent.trim() === ticker) {
-            const dir = (quote.changePercent >= 0) ? 'flash-up' : 'flash-down';
-            row.classList.add(dir);
-            setTimeout(() => row.classList.remove(dir), 700);
-          }
-        });
-      }, 50);
+      break;
+    }
+
+    case 'PRICES_UPDATE': {
+      // New format: { TICKER: { price, change_pct } }
+      for (const [ticker, q] of Object.entries(msg.data)) {
+        const prev = state.prices[ticker];
+        state.prices[ticker] = { ...q, changePercent: q.change_pct };
+        renderWatchlistItem(ticker, prev);
+      }
+      renderWLPriceTable();
+      updateTape();
       break;
     }
 
@@ -680,11 +691,50 @@ function handleWSMessage(msg) {
       break;
 
     case 'CONTRADICTIONS_UPDATE':
-      state.contradictions = [...state.contradictions.filter(c => c.ticker !== msg.data.ticker), ...msg.data.contradictions];
+      state.contradictions = [...state.contradictions.filter(c => c.ticker !== msg.data.ticker), ...(msg.data.contradictions || []).map(normalizeFlag)];
       renderFlags();
       renderFlagsPreview();
       renderDashboard();
-      addActivity(`${msg.data.count} contradiction(s) detected for ${msg.data.ticker}`, msg.data.count > 0 ? 'red' : 'green');
+      addActivity(`${msg.data.count} flag(s) detected for ${msg.data.ticker}`, msg.data.count > 0 ? 'red' : 'green');
+      break;
+
+    case 'SCAN_COMPLETE': {
+      const t = msg.data.ticker;
+      document.getElementById('scan-status').style.display = 'none';
+      setStatus(`Scan complete: ${msg.data.approved_flags_count} flag(s) for ${t}`, false);
+      addActivity(`Scan complete for ${t}: ${msg.data.approved_flags_count} approved flags`, msg.data.approved_flags_count > 0 ? 'red' : 'green');
+      // Refresh flags from API
+      fetch(`${API}/api/scan/${t}/flags`).then(r => r.json()).then(flags => {
+        state.contradictions = [...state.contradictions.filter(c => c.ticker !== t), ...flags.map(normalizeFlag)];
+        // Also refresh filings
+        return fetch(`${API}/api/filings/${t}`);
+      }).then(r => r.json()).then(filings => {
+        state.filings = [...state.filings.filter(f => f.ticker !== t), ...filings.map(f => ({ ticker: t, form: f.form_type, filingDate: f.filing_date, url: f.source_url, directUrl: f.direct_url, accessionNumber: f.accession_number }))];
+        renderFlags();
+        renderFlagsPreview();
+        renderDashboard();
+        renderWatchlist();
+        renderWLPriceTable();
+        renderRecentFilings();
+        renderAllFilings();
+        if (state.selectedTicker === t) renderCompanyFilings();
+      }).catch(() => {});
+      break;
+    }
+
+    case 'SCAN_STATUS':
+      if (msg.data.status === 'running') {
+        setStatus(`Scanning ${msg.data.ticker}: ${(msg.data.step || '').replace(/_/g, ' ')}...`, true);
+        document.getElementById('scan-status').style.display = 'inline';
+      } else if (msg.data.status === 'failed') {
+        document.getElementById('scan-status').style.display = 'none';
+        setStatus(`Scan failed for ${msg.data.ticker}`, false);
+        addActivity(`Scan failed: ${msg.data.error || 'Unknown error'}`, 'red');
+      }
+      break;
+
+    case 'FLAG_FOUND':
+      addActivity(`Flag found for ${msg.data.ticker}: [${msg.data.flag?.severity}] ${msg.data.flag?.topic}`, 'red');
       break;
 
     case 'STATUS':
@@ -692,6 +742,22 @@ function handleWSMessage(msg) {
       if (msg.data.message) addActivity(msg.data.message, msg.data.error ? 'red' : 'default');
       break;
   }
+}
+
+function normalizeFlag(f) {
+  return {
+    ticker: f.ticker,
+    topic: f.topic,
+    severity: f.severity,
+    bullishClaim: f.bullish_claim || f.bullishClaim,
+    bearishSignal: f.bearish_signal || f.bearishSignal,
+    magnitude: f.magnitude || 'Flagged',
+    filingType: f.form_type || f.filingType,
+    detectedAt: f.created_at || f.detectedAt || new Date().toISOString(),
+    audit_score: f.audit_score,
+    final_explanation: f.final_explanation,
+    safe_wording: f.safe_wording
+  };
 }
 
 // ─── RENDER FUNCTIONS ──────────────────────────────────────────────
@@ -983,10 +1049,11 @@ async function loadPriceChart(ticker) {
     return;
   }
   try {
-    const res = await fetch(`${API}/api/history/${ticker}`);
+    const res = await fetch(`${API}/api/quotes/${ticker}/history?range=1mo`);
     const data = await res.json();
-    state.priceHistory[ticker] = data;
-    drawChart(data);
+    // Normalize: new format is [{date, close}], old is [{date, price}]
+    state.priceHistory[ticker] = data.map(d => ({ date: d.date, price: d.close ?? d.price }));
+    drawChart(state.priceHistory[ticker]);
   } catch(e) {}
 }
 
@@ -1073,21 +1140,41 @@ function drawChart(data) {
 
 async function loadMetrics(ticker) {
   const container = document.getElementById('metrics-area');
-  const panelTitle = document.querySelector('#company-grid .panel-title');
   container.innerHTML = '<div style="padding:16px; color:var(--text3);">Loading...</div>';
 
-  // Check if Indian stock
   const wItem = state.watchlist.find(w => w.ticker === ticker);
   const isIndian = wItem?.country === 'IN';
   const currSym = isIndian ? '₹' : '$';
 
-  // Update panel label
   const sourceLabel = document.querySelector('[data-metrics-source]');
   if (sourceLabel) sourceLabel.textContent = isIndian ? 'BSE/NSE' : 'XBRL / SEC';
 
   try {
-    const res = await fetch(`${API}/api/metrics/${ticker}`);
-    const m = await res.json();
+    // Get filings for this ticker, then facts from latest filing
+    const filingsRes = await fetch(`${API}/api/filings/${ticker}`);
+    const filings = await filingsRes.json();
+    const latestFiling = filings.find(f => f.form_type === '10-K') || filings[0];
+
+    let facts = [];
+    if (latestFiling) {
+      const detailRes = await fetch(`${API}/api/filings/${ticker}/${latestFiling.id}`);
+      const detail = await detailRes.json();
+      facts = detail.facts || [];
+    }
+
+    // Build metrics map from facts
+    const byMetric = {};
+    for (const f of facts) byMetric[f.metric] = f;
+
+    // Build compat object for rendering
+    const m = {
+      revenue: byMetric['Revenue'] ? { current: byMetric['Revenue'].value, prior: byMetric['Revenue'].prior_value } : null,
+      netIncome: byMetric['Net Income'] ? { current: byMetric['Net Income'].value, prior: byMetric['Net Income'].prior_value } : null,
+      assets: byMetric['Total Assets'] ? { current: byMetric['Total Assets'].value } : null,
+      liabilities: null,
+      operatingCashflow: byMetric['Operating Cash Flow'] ? { current: byMetric['Operating Cash Flow'].value, prior: byMetric['Operating Cash Flow'].prior_value } : null,
+      eps: byMetric['EPS Diluted'] ? { current: byMetric['EPS Diluted'].value } : null,
+    };
 
     // For Indian stocks with no XBRL data, show price-based metrics from quote
     const p = state.prices[ticker];
@@ -1172,12 +1259,82 @@ function renderCompanyFilings() {
 
 async function renderNote(ticker) {
   const container = document.getElementById('note-content');
+  container.innerHTML = '<div style="padding:20px; color:var(--orange); font-size:10px;">LOADING NOTE...</div>';
+
+  try {
+    const res = await fetch(`${API}/api/notes/${ticker}`);
+    const notes = await res.json();
+    const note = notes[0];
+
+    if (!note) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">📋</div>
+          <div class="empty-state-title">NO NOTE YET</div>
+          <div class="empty-state-sub">Run a scan on ${ticker} to generate a research note automatically.</div>
+        </div>`;
+      return;
+    }
+
+    const c = note.content_json || {};
+    const metrics = c.key_metrics || [];
+    const redFlags = c.red_flags || [];
+
+    container.innerHTML = `
+      <div class="note-header">
+        <div>
+          <div class="note-title">${c.title || ticker + ' — RESEARCH NOTE'}</div>
+          <div class="note-meta">Generated: ${new Date(note.created_at).toLocaleString()}</div>
+        </div>
+      </div>
+      <div class="note-section">
+        <div class="note-section-title">EXECUTIVE SUMMARY</div>
+        <div class="note-text" contenteditable="true">${c.executive_summary || 'N/A'}</div>
+      </div>
+      ${redFlags.length > 0 ? `
+      <div class="note-section">
+        <div class="note-section-title">RED FLAGS</div>
+        <ul class="note-risks">
+          ${redFlags.map(f => `<li class="note-risk-item"><strong>[${f.severity}]</strong> ${f.topic}: ${f.detail}</li>`).join('')}
+        </ul>
+      </div>` : ''}
+      <div class="note-section">
+        <div class="note-section-title">KEY METRICS</div>
+        <div class="note-fin-grid">
+          ${metrics.map(m => `
+            <div class="note-fin-cell">
+              <div class="note-fin-label">${m.label}</div>
+              <div class="note-fin-val">${m.value}</div>
+              ${m.trend ? `<div class="note-fin-chg" style="color:${m.trend==='up'?'var(--green)':m.trend==='down'?'var(--red)':'var(--text3)'}">${m.trend === 'up' ? '▲' : m.trend === 'down' ? '▼' : '—'} ${m.trend}</div>` : ''}
+            </div>`).join('')}
+        </div>
+      </div>
+      <div class="note-section">
+        <div class="note-section-title">BULL CASE</div>
+        <div class="note-text" contenteditable="true">${c.bull_case || 'N/A'}</div>
+      </div>
+      <div class="note-section">
+        <div class="note-section-title">BEAR CASE</div>
+        <div class="note-text" contenteditable="true">${c.bear_case || 'N/A'}</div>
+      </div>
+      <div class="note-section">
+        <div class="note-section-title">ANALYST NOTE</div>
+        <div class="note-text" contenteditable="true">${c.analyst_note || 'N/A'}</div>
+      </div>
+    `;
+  } catch(e) {
+    container.innerHTML = '<div style="padding:20px; color:var(--red);">Failed to load note</div>';
+  }
+}
+
+async function renderNote_LEGACY(ticker) {
+  const container = document.getElementById('note-content');
   container.innerHTML = '<div style="padding:20px; color:var(--orange); font-size:10px;">GENERATING NOTE...</div>';
-  
+
   try {
     const res = await fetch(`${API}/api/note/${ticker}`);
     const note = await res.json();
-    
+
     const s = note.sections;
     const fin = s.financialSummary;
     
@@ -1285,10 +1442,10 @@ async function addTicker() {
   const input = document.getElementById('ticker-input');
   const ticker = input.value.trim().toUpperCase();
   if (!ticker) return;
-  
+
   input.value = '';
   setStatus(`Adding ${ticker}...`, true);
-  
+
   try {
     const res = await fetch(`${API}/api/watchlist`, {
       method: 'POST',
@@ -1300,7 +1457,21 @@ async function addTicker() {
       setStatus(data.error || 'Error', false);
       addActivity(`Failed to add ${ticker}: ${data.error}`, 'red');
     } else {
-      addActivity(`Added ${ticker} to watchlist — fetching data...`, 'default');
+      const c = data.company;
+      const existing = state.watchlist.find(w => w.ticker === ticker);
+      if (!existing && c) {
+        state.watchlist.push({ ticker, companyName: c.company_name, status: c.status, country: c.country });
+      }
+      if (data.filings?.length > 0) {
+        const newFilings = data.filings.map(f => ({ ticker, form: f.form_type, filingDate: f.filing_date, url: f.source_url, directUrl: f.direct_url, accessionNumber: f.accession_number }));
+        state.filings = [...state.filings.filter(f => f.ticker !== ticker), ...newFilings];
+      }
+      renderWatchlist();
+      renderDashboard();
+      renderWLPriceTable();
+      renderRecentFilings();
+      setStatus(`${ticker} added — scanning...`, true);
+      addActivity(`Added ${ticker} — auto-scan running`, 'default');
     }
   } catch(e) {
     setStatus('Connection error', false);
@@ -1309,25 +1480,37 @@ async function addTicker() {
 
 async function removeTicker(ticker) {
   await fetch(`${API}/api/watchlist/${ticker}`, { method: 'DELETE' });
+  state.watchlist = state.watchlist.filter(w => w.ticker !== ticker);
+  state.filings = state.filings.filter(f => f.ticker !== ticker);
+  state.contradictions = state.contradictions.filter(c => c.ticker !== ticker);
   if (state.selectedTicker === ticker) state.selectedTicker = null;
+  renderWatchlist();
+  renderDashboard();
+  renderWLPriceTable();
+  renderFlags();
   addActivity(`Removed ${ticker} from watchlist`, 'default');
 }
 
 async function scanTicker(ticker) {
   if (!ticker && state.selectedTicker) ticker = state.selectedTicker;
   if (!ticker) return;
-  
+
   document.getElementById('scan-status').style.display = 'inline';
-  setStatus(`Scanning ${ticker}...`, true);
-  
+  setStatus(`Starting scan for ${ticker}...`, true);
+  addActivity(`Scan started for ${ticker} — running swarm agents`, 'default');
+
   try {
     const res = await fetch(`${API}/api/scan/${ticker}`, { method: 'POST' });
     const data = await res.json();
-    document.getElementById('scan-status').style.display = 'none';
-    setStatus(`Scan complete: ${data.count} contradiction(s) found for ${ticker}`, false);
+    if (!res.ok) {
+      document.getElementById('scan-status').style.display = 'none';
+      setStatus(data.error || 'Scan failed', false);
+    } else {
+      setStatus(`Scan running for ${ticker} — results via WebSocket...`, true);
+    }
   } catch(e) {
     document.getElementById('scan-status').style.display = 'none';
-    setStatus('Scan failed', false);
+    setStatus('Connection error', false);
   }
 }
 
@@ -1421,32 +1604,64 @@ document.getElementById('btn-scan-all').addEventListener('click', () => {
 });
 document.getElementById('btn-regen').addEventListener('click', async () => {
   if (!state.selectedTicker) return;
-  try {
-    await fetch(`${API}/api/note/${state.selectedTicker}/regenerate`, { method: 'POST' });
-    renderNote(state.selectedTicker);
-  } catch(e) {}
+  // Re-trigger scan which will regenerate note via swarm writer
+  scanTicker(state.selectedTicker);
 });
 
-// Initial load
+// Initial load — called on page load and after INIT
 async function bootstrap() {
   try {
-    const res = await fetch(`${API}/api/dashboard`);
+    const res = await fetch(`${API}/api/dashboard/summary`);
+    if (!res.ok) return;
     const data = await res.json();
-    // Merge prices
-    for (const w of data.watchlist) {
-      const priceRes = await fetch(`${API}/api/quote/${w.ticker}`).catch(() => null);
-      if (priceRes?.ok) {
-        const q = await priceRes.json();
-        if (q?.price) state.prices[w.ticker] = q;
+
+    // Merge watchlist
+    if (data.watchlist) {
+      state.watchlist = data.watchlist.map(w => ({
+        ticker: w.symbol, companyName: w.company_name, status: w.status, country: w.country, flag_count: w.flag_count
+      }));
+    }
+
+    // Fetch prices for each ticker
+    await Promise.allSettled(state.watchlist.map(async (w) => {
+      try {
+        const qRes = await fetch(`${API}/api/quotes/${w.ticker}`);
+        if (qRes.ok) {
+          const q = await qRes.json();
+          if (q?.price) state.prices[w.ticker] = { ...q, changePercent: q.change_pct ?? q.changePercent };
+        }
+      } catch(e) {}
+    }));
+
+    // Fetch flags
+    if (data.total_flags > 0) {
+      const flagRes = await fetch(`${API}/api/dashboard/flags`);
+      if (flagRes.ok) {
+        const flags = await flagRes.json();
+        state.contradictions = flags.map(normalizeFlag);
       }
     }
+
+    // Fetch recent filings
+    for (const w of state.watchlist.slice(0, 5)) {
+      try {
+        const fRes = await fetch(`${API}/api/filings/${w.ticker}`);
+        if (fRes.ok) {
+          const filings = await fRes.json();
+          state.filings.push(...filings.map(f => ({ ticker: w.ticker, form: f.form_type, filingDate: f.filing_date, url: f.source_url, directUrl: f.direct_url, accessionNumber: f.accession_number })));
+        }
+      } catch(e) {}
+    }
+
+    renderAll();
   } catch(e) {
     addActivity('Backend not running — start the server first', 'red');
   }
 }
 
-bootstrap();
 connectWS();
+// Bootstrap after short delay to let WS connect first; fallback if WS fails
+setTimeout(bootstrap, 1500);
 
 // Re-render price table every 5s to keep numbers fresh
 setInterval(() => {

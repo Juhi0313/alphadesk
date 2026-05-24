@@ -10,7 +10,15 @@ services:
         value: production
       - key: NVIDIA_API_KEY
         sync: false
-      - key: UPSTASH_REDIS_REST_URL
-        sync: false
-      - key: UPSTASH_REDIS_REST_TOKEN
-        sync: false
+      - key: EXTRACTOR_MODEL
+        value: microsoft/phi-4-mini-instruct
+      - key: JUDGE_MODEL
+        value: qwen/qwen3-4b
+      - key: REVIEWER_MODEL
+        value: qwen/qwen3-4b
+      - key: AUDITOR_MODEL
+        value: qwen/qwen3-4b
+      - key: WRITER_MODEL
+        value: google/gemma-3-4b-it
+      - key: DB_PATH
+        value: ./data/alphadesk.db
