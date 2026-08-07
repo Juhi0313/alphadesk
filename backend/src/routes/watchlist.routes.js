@@ -33,12 +33,25 @@ export function createWatchlistRouter(broadcast) {
       broadcast('STATUS', { message: `Adding ${ticker}...`, ticker });
 
       let ingestResult;
+      let resolvedIndian = isIndian;
       if (isIndian) {
         ingestResult = await ingestIndianCompany(ticker);
         await ingestIndianFilings(ticker);
       } else {
         ingestResult = await ingestUSCompany(ticker);
-        await ingestUSFilings(ticker, ingestResult.submissions);
+        if (!ingestResult.quote && !ingestResult.cik) {
+          // Not a recognized US ticker — retry as an Indian company before giving up
+          logger.info(`[Watchlist] ${ticker} not found on SEC/Yahoo, retrying as Indian ticker`);
+          const indianResult = await ingestIndianCompany(ticker);
+          if (indianResult.quote || indianResult.bseInfo) {
+            ingestResult = indianResult;
+            resolvedIndian = true;
+            await ingestIndianFilings(ticker);
+          }
+        }
+        if (!resolvedIndian) {
+          await ingestUSFilings(ticker, ingestResult.submissions);
+        }
       }
 
       // Fetch initial price immediately instead of waiting for the next poll cycle
