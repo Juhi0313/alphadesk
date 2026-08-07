@@ -6,7 +6,7 @@ import { getAllCompanies, getCompany } from '../db/repositories/company.repo.js'
 import { getFilings } from '../db/repositories/filing.repo.js';
 import { getFlags } from '../db/repositories/flag.repo.js';
 import { getScanRuns } from '../db/repositories/scanRun.repo.js';
-import { getQuote } from '../providers/yahoo.provider.js';
+import { fetchAndStorePrice } from '../services/pricePolling.js';
 import { runSwarm } from '../swarm/swarmRunner.js';
 import { badRequest, notFound } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
@@ -41,6 +41,10 @@ export function createWatchlistRouter(broadcast) {
         await ingestUSFilings(ticker);
       }
 
+      // Fetch initial price immediately instead of waiting for the next poll cycle
+      const company = getCompany(ticker);
+      fetchAndStorePrice(company, broadcast).catch(e => logger.warn(`[InitialPrice] ${ticker}`, e.message));
+
       // Auto-scan in background
       const filings = getFilings(ticker);
       const latestFiling = filings.find(f => f.form_type === '10-K' || f.form_type === 'Annual Report') || filings[0];
@@ -48,7 +52,7 @@ export function createWatchlistRouter(broadcast) {
         runSwarm({ ticker, filing: latestFiling, broadcastFn: broadcast }).catch(e => logger.warn(`[AutoScan] ${ticker}`, e.message));
       }
 
-      res.json({ ticker, company: getCompany(ticker), filings });
+      res.json({ ticker, company, filings });
     } catch (e) { next(e); }
   });
 

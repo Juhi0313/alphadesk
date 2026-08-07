@@ -6,17 +6,36 @@ const EDGAR_ARCHIVES = 'https://www.sec.gov/Archives/edgar/full-index';
 const SUBMISSIONS_BASE = 'https://data.sec.gov/submissions';
 const HEADERS = { 'User-Agent': 'AlphaDesk/2.0 research@alphadesk.ai' };
 
-export async function getCIK(ticker) {
-  const url = `${EDGAR_BASE}/submissions/CIK${String(ticker).toUpperCase().padStart(10, '0')}.json`;
-  // Try ticker map first
-  const mapUrl = 'https://www.sec.gov/files/company_tickers.json';
-  try {
-    const res = await fetch(mapUrl, { headers: HEADERS });
-    if (res.ok) {
-      const data = await res.json();
-      const entry = Object.values(data).find(e => e.ticker?.toUpperCase() === ticker.toUpperCase());
-      if (entry) return String(entry.cik_str).padStart(10, '0');
+let tickerMapCache = null;
+let tickerMapCachePromise = null;
+
+async function getTickerMap() {
+  if (tickerMapCache) return tickerMapCache;
+  if (tickerMapCachePromise) return tickerMapCachePromise;
+  tickerMapCachePromise = (async () => {
+    const mapUrl = 'https://www.sec.gov/files/company_tickers.json';
+    const res = await fetch(mapUrl, { headers: HEADERS, signal: AbortSignal.timeout(15000) });
+    if (!res.ok) throw new Error(`SEC ticker map fetch failed: ${res.status}`);
+    const data = await res.json();
+    const bySymbol = new Map();
+    for (const entry of Object.values(data)) {
+      if (entry.ticker) bySymbol.set(entry.ticker.toUpperCase(), entry);
     }
+    tickerMapCache = bySymbol;
+    return bySymbol;
+  })();
+  try {
+    return await tickerMapCachePromise;
+  } finally {
+    tickerMapCachePromise = null;
+  }
+}
+
+export async function getCIK(ticker) {
+  try {
+    const map = await getTickerMap();
+    const entry = map.get(ticker.toUpperCase());
+    if (entry) return String(entry.cik_str).padStart(10, '0');
   } catch (e) {
     logger.warn('[SEC] ticker map lookup failed', e.message);
   }
@@ -25,7 +44,7 @@ export async function getCIK(ticker) {
 
 export async function getSubmissions(cik) {
   const url = `${SUBMISSIONS_BASE}/CIK${cik}.json`;
-  const res = await fetch(url, { headers: HEADERS });
+  const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error(`SEC submissions fetch failed: ${res.status}`);
   return res.json();
 }

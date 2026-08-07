@@ -22,22 +22,34 @@ async function pollAllPrices(broadcast) {
   const companies = getAllCompanies();
   const prices = {};
   await Promise.allSettled(companies.map(async (c) => {
-    try {
-      let quote;
-      if (c.country === 'IN' && c.bse_code) {
-        quote = await getBSEQuote(c.bse_code);
-      } else {
-        quote = await getQuote(c.symbol);
-      }
-      if (quote) {
-        storePrice(c.symbol, quote);
-        prices[c.symbol] = quote;
-      }
-    } catch (e) {
-      logger.warn(`[PricePolling] Failed for ${c.symbol}`, e.message);
+    const quote = await fetchQuoteForCompany(c);
+    if (quote) {
+      storePrice(c.symbol, quote);
+      prices[c.symbol] = quote;
     }
   }));
   if (Object.keys(prices).length > 0) broadcast('PRICES_UPDATE', prices);
+}
+
+async function fetchQuoteForCompany(c) {
+  try {
+    if (c.country === 'IN' && c.bse_code) {
+      return await getBSEQuote(c.bse_code);
+    }
+    return await getQuote(c.symbol);
+  } catch (e) {
+    logger.warn(`[PricePolling] Failed for ${c.symbol}`, e.message);
+    return null;
+  }
+}
+
+export async function fetchAndStorePrice(company, broadcast) {
+  const quote = await fetchQuoteForCompany(company);
+  if (quote) {
+    storePrice(company.symbol, quote);
+    if (broadcast) broadcast('PRICES_UPDATE', { [company.symbol]: quote });
+  }
+  return quote;
 }
 
 function storePrice(symbol, quote) {
