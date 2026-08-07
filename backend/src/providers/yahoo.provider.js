@@ -21,7 +21,10 @@ export async function getQuote(ticker) {
       currency: meta.currency,
       exchange: meta.exchangeName,
       company_name: meta.shortName || meta.longName,
-      market_cap: meta.marketCap
+      market_cap: meta.marketCap,
+      low: meta.regularMarketDayLow,
+      high: meta.regularMarketDayHigh,
+      volume: meta.regularMarketVolume
     };
   } catch (e) {
     logger.warn('[Yahoo] getQuote error', e.message);

@@ -666,7 +666,7 @@ function handleWSMessage(msg) {
     case 'PRICE_UPDATE': {
       const { ticker, quote } = msg.data;
       const prev = state.prices[ticker];
-      state.prices[ticker] = { ...quote, changePercent: quote.change_pct ?? quote.changePercent };
+      state.prices[ticker] = { ...quote, changePercent: quote.change_pct ?? quote.changePercent, marketCap: quote.market_cap ?? quote.marketCap };
       renderWatchlistItem(ticker, prev);
       renderWLPriceTable();
       renderDashboard();
@@ -678,7 +678,7 @@ function handleWSMessage(msg) {
       // New format: { TICKER: { price, change_pct } }
       for (const [ticker, q] of Object.entries(msg.data)) {
         const prev = state.prices[ticker];
-        state.prices[ticker] = { ...q, changePercent: q.change_pct };
+        state.prices[ticker] = { ...q, changePercent: q.change_pct, marketCap: q.market_cap ?? q.marketCap };
         renderWatchlistItem(ticker, prev);
       }
       renderWLPriceTable();
@@ -1025,7 +1025,7 @@ async function renderCompanyDetail(ticker) {
         </div>
         <div class="ch-stat">
           <div class="ch-stat-label">DAY RANGE</div>
-          <div class="ch-stat-val">${p ? `$${p.low?.toFixed(2)} – $${p.high?.toFixed(2)}` : '—'}</div>
+          <div class="ch-stat-val">${(p?.low != null && p?.high != null) ? `${p.currency === 'INR' ? '₹' : '$'}${p.low.toFixed(2)} – ${p.currency === 'INR' ? '₹' : '$'}${p.high.toFixed(2)}` : '—'}</div>
         </div>
         <div class="ch-stat">
           <div class="ch-stat-label">FLAGS</div>
@@ -1186,7 +1186,7 @@ async function loadMetrics(ticker) {
       container.innerHTML = [
         ['MARKET CAP', p?.marketCap ? formatNum(p.marketCap, '₹') : 'N/A', ''],
         ['CURRENT PRICE', p?.price ? `₹${p.price.toFixed(2)}` : 'N/A', ''],
-        ['DAY RANGE', p ? `₹${p.low?.toFixed(2)} – ₹${p.high?.toFixed(2)}` : 'N/A', ''],
+        ['DAY RANGE', (p?.low != null && p?.high != null) ? `₹${p.low.toFixed(2)} – ₹${p.high.toFixed(2)}` : 'N/A', ''],
         ['VOLUME', p?.volume ? formatNum(p.volume, '') : 'N/A', ''],
         ['EXCHANGE', wItem?.exchange || 'BSE/NSE', ''],
         ['SOURCE', 'BSE Annual Report', ''],
@@ -1641,7 +1641,7 @@ async function bootstrap() {
         const qRes = await fetch(`${API}/api/quotes/${w.ticker}`);
         if (qRes.ok) {
           const q = await qRes.json();
-          if (q?.price) state.prices[w.ticker] = { ...q, changePercent: q.change_pct ?? q.changePercent };
+          if (q?.price) state.prices[w.ticker] = { ...q, changePercent: q.change_pct ?? q.changePercent, marketCap: q.market_cap ?? q.marketCap };
         }
       } catch(e) {}
     }));
