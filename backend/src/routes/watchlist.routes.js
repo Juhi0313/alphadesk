@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { validateTicker } from '../utils/validateTicker.js';
 import { ingestUSCompany, ingestIndianCompany } from '../ingestion/companyIngestion.service.js';
 import { ingestUSFilings, ingestIndianFilings } from '../ingestion/filingIngestion.service.js';
-import { getAllCompanies, getCompany } from '../db/repositories/company.repo.js';
+import { getAllCompanies, getCompany, updateCompanyStatus } from '../db/repositories/company.repo.js';
 import { getFilings } from '../db/repositories/filing.repo.js';
 import { getFlags } from '../db/repositories/flag.repo.js';
 import { getScanRuns } from '../db/repositories/scanRun.repo.js';
@@ -60,7 +60,8 @@ export function createWatchlistRouter(broadcast) {
     try {
       const { valid, ticker } = validateTicker(req.params.ticker);
       if (!valid) return next(badRequest('Invalid ticker'));
-      // Note: no hard delete from companies table — just return success
+      if (!getCompany(ticker)) return next(notFound(`Company not found: ${ticker}`));
+      updateCompanyStatus(ticker, 'removed');
       res.json({ removed: ticker });
     } catch (e) { next(e); }
   });

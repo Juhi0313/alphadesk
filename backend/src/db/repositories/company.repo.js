@@ -21,7 +21,7 @@ export function getCompany(symbol) {
 }
 
 export function getAllCompanies() {
-  return getSqlite().prepare('SELECT * FROM companies ORDER BY created_at DESC').all();
+  return getSqlite().prepare("SELECT * FROM companies WHERE status != 'removed' ORDER BY created_at DESC").all();
 }
 
 export function updateCompanyStatus(symbol, status) {
