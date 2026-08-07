@@ -12,6 +12,7 @@ export async function getQuote(ticker) {
     const data = await res.json();
     const meta = data?.chart?.result?.[0]?.meta;
     if (!meta || typeof meta.regularMarketPrice !== 'number') return null;
+    if (meta.instrumentType && meta.instrumentType !== 'EQUITY') return null;
     return {
       symbol: ticker,
       price: meta.regularMarketPrice,

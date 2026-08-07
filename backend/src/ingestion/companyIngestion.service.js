@@ -37,11 +37,16 @@ export async function ingestUSCompany(ticker) {
   return { id, ticker, quote, cik, submissions };
 }
 
-export async function ingestIndianCompany(ticker) {
-  logger.info(`[Ingest] Indian company: ${ticker}`);
+export async function lookupIndianCompany(ticker) {
   const cleanTicker = ticker.replace('.NS', '').replace('.BO', '');
   const [bseInfo, yahooQuote] = await Promise.all([searchBSECompany(cleanTicker), getQuote(ticker)]);
-  const quote = yahooQuote || await getBSEQuote(bseInfo?.bse_code);
+  const quote = yahooQuote || (bseInfo?.bse_code ? await getBSEQuote(bseInfo.bse_code) : null);
+  return { bseInfo, quote };
+}
+
+export async function ingestIndianCompany(ticker, prefetched = null) {
+  logger.info(`[Ingest] Indian company: ${ticker}`);
+  const { bseInfo, quote } = prefetched || await lookupIndianCompany(ticker);
   const id = upsertCompany({
     symbol: ticker,
     company_name: bseInfo?.company_name || quote?.company_name || ticker,

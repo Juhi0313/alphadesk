@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { validateTicker } from '../utils/validateTicker.js';
-import { ingestUSCompany, ingestIndianCompany } from '../ingestion/companyIngestion.service.js';
+import { ingestUSCompany, ingestIndianCompany, lookupIndianCompany } from '../ingestion/companyIngestion.service.js';
 import { ingestUSFilings, ingestIndianFilings } from '../ingestion/filingIngestion.service.js';
 import { getAllCompanies, getCompany, updateCompanyStatus } from '../db/repositories/company.repo.js';
 import { getFilings } from '../db/repositories/filing.repo.js';
@@ -40,11 +40,12 @@ export function createWatchlistRouter(broadcast) {
       } else {
         ingestResult = await ingestUSCompany(ticker);
         if (!ingestResult.quote && !ingestResult.cik) {
-          // Not a recognized US ticker — retry as an Indian company before giving up
-          logger.info(`[Watchlist] ${ticker} not found on SEC/Yahoo, retrying as Indian ticker`);
-          const indianResult = await ingestIndianCompany(ticker);
-          if (indianResult.quote || indianResult.bseInfo) {
-            ingestResult = indianResult;
+          // Not a recognized US ticker — probe (no DB write) before committing as Indian,
+          // so a failed guess doesn't overwrite the company's country/status either way
+          const probe = await lookupIndianCompany(ticker);
+          if (probe.quote || probe.bseInfo) {
+            logger.info(`[Watchlist] ${ticker} not found on SEC/Yahoo, resolved as Indian ticker`);
+            ingestResult = await ingestIndianCompany(ticker, probe);
             resolvedIndian = true;
             await ingestIndianFilings(ticker);
           }
