@@ -6,8 +6,7 @@ import { logger } from '../utils/logger.js';
 
 export async function ingestUSCompany(ticker) {
   logger.info(`[Ingest] US company: ${ticker}`);
-  const quote = await getQuote(ticker);
-  const cik = await getCIK(ticker);
+  const [quote, cik] = await Promise.all([getQuote(ticker), getCIK(ticker)]);
   const id = upsertCompany({
     symbol: ticker,
     company_name: quote?.company_name || ticker,
@@ -16,12 +15,13 @@ export async function ingestUSCompany(ticker) {
     cik: cik,
     status: 'loading'
   });
+  let submissions = null;
   if (cik) {
     try {
-      const subs = await getSubmissions(cik);
+      submissions = await getSubmissions(cik);
       upsertCompany({
         symbol: ticker,
-        company_name: subs.name || quote?.company_name || ticker,
+        company_name: submissions.name || quote?.company_name || ticker,
         country: 'US',
         exchange: quote?.exchange,
         cik,
@@ -34,14 +34,14 @@ export async function ingestUSCompany(ticker) {
   } else {
     updateCompanyStatus(ticker, 'ready');
   }
-  return { id, ticker, quote, cik };
+  return { id, ticker, quote, cik, submissions };
 }
 
 export async function ingestIndianCompany(ticker) {
   logger.info(`[Ingest] Indian company: ${ticker}`);
   const cleanTicker = ticker.replace('.NS', '').replace('.BO', '');
-  const bseInfo = await searchBSECompany(cleanTicker);
-  const quote = await getQuote(ticker) || await getBSEQuote(bseInfo?.bse_code);
+  const [bseInfo, yahooQuote] = await Promise.all([searchBSECompany(cleanTicker), getQuote(ticker)]);
+  const quote = yahooQuote || await getBSEQuote(bseInfo?.bse_code);
   const id = upsertCompany({
     symbol: ticker,
     company_name: bseInfo?.company_name || quote?.company_name || ticker,

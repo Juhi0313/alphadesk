@@ -38,7 +38,7 @@ export function createWatchlistRouter(broadcast) {
         await ingestIndianFilings(ticker);
       } else {
         ingestResult = await ingestUSCompany(ticker);
-        await ingestUSFilings(ticker);
+        await ingestUSFilings(ticker, ingestResult.submissions);
       }
 
       // Fetch initial price immediately instead of waiting for the next poll cycle

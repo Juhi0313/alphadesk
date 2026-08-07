@@ -1,10 +1,10 @@
-import { getRecentFilings } from '../providers/sec.provider.js';
+import { getRecentFilings, extractRecentFilings } from '../providers/sec.provider.js';
 import { getBSEFilings as getBSEFilingsList } from '../providers/bse.provider.js';
 import { upsertFiling } from '../db/repositories/filing.repo.js';
 import { getCompany } from '../db/repositories/company.repo.js';
 import { logger } from '../utils/logger.js';
 
-export async function ingestUSFilings(ticker) {
+export async function ingestUSFilings(ticker, submissions = null) {
   const company = getCompany(ticker);
   if (!company?.cik) {
     logger.warn(`[FilingIngest] No CIK for ${ticker}`);
@@ -12,7 +12,9 @@ export async function ingestUSFilings(ticker) {
   }
   let filings;
   try {
-    filings = await getRecentFilings(company.cik);
+    filings = submissions
+      ? extractRecentFilings(submissions, company.cik)
+      : await getRecentFilings(company.cik);
   } catch (e) {
     logger.warn(`[FilingIngest] getRecentFilings failed for ${ticker}`, e.message);
     return [];

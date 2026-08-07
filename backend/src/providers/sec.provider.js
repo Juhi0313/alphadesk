@@ -49,8 +49,7 @@ export async function getSubmissions(cik) {
   return res.json();
 }
 
-export async function getRecentFilings(cik, formTypes = ['10-K', '10-Q']) {
-  const data = await getSubmissions(cik);
+export function extractRecentFilings(data, cik, formTypes = ['10-K', '10-Q']) {
   const filings = data.filings?.recent || {};
   const results = [];
   const forms = filings.form || [];
@@ -69,6 +68,11 @@ export async function getRecentFilings(cik, formTypes = ['10-K', '10-Q']) {
     }
   }
   return results;
+}
+
+export async function getRecentFilings(cik, formTypes = ['10-K', '10-Q']) {
+  const data = await getSubmissions(cik);
+  return extractRecentFilings(data, cik, formTypes);
 }
 
 export async function getCompanyFacts(cik) {
